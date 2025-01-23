@@ -1,4 +1,3 @@
-
 # Log variables for debugging
 :log info "Lease MAC: $leaseActMAC, IP: $leaseActIP, Bound: $leaseBound";
 
@@ -34,47 +33,40 @@
             :if ($addressList = "Servers") do={ :set speedLimit "100M/100M"; }
             :if ($addressList = "CCTV") do={ :set speedLimit "50M/50M"; }
             :if ($addressList = "IOT") do={ :set speedLimit "50M/50M"; }
+            :if ($addressList = "AP") do={ :set speedLimit "50M/50M"; }
             :if ($addressList = "ALEXA") do={ :set speedLimit "100M/100M"; }
             :if ($addressList = "Blocklist") do={ :set speedLimit "56K/56K"; }
-            :if ($addressList = "FILESERVER") do={ :set speedLimit "500M/500M"; }
+            :if ($addressList = "Fileserver") do={ :set speedLimit "500M/500M"; }
         }
     }
 
-
-# Get the interface (or bridge-port) used by the DHCP device using new logic
-:local devicePort "Unknown";
-:if ($leaseBound = "1") do={
-    # Try finding the device in the bridge host table first
-    /interface bridge host
-    :local searchresult [find where mac-address=$leaseActMAC];
-    :if ([:len $searchresult] > 0) do={
-        :set devicePort [get $searchresult on-interface];
-        :log info "Device found in bridge host table on interface: $devicePort";
-    } else={
-        # If not found in bridge host table, check in the ARP table
-        /ip arp
-        :set searchresult [find where mac-address=$leaseActMAC];
+    # Get the interface (or bridge-port) used by the DHCP device using new logic
+    :local devicePort "Unknown";
+    :if ($leaseBound = "1") do={
+        # Try finding the device in the bridge host table first
+        /interface bridge host
+        :local searchresult [find where mac-address=$leaseActMAC];
         :if ([:len $searchresult] > 0) do={
-            :set devicePort [get $searchresult interface];
-            :log info "Device found in ARP table on interface: $devicePort";
+            :set devicePort [get $searchresult on-interface];
+            :log info "Device found in bridge host table on interface: $devicePort";
         } else={
-            :log info "Device with MAC $leaseActMAC not found in bridge host or ARP tables.";
+            # If not found in bridge host table, check in the ARP table
+            /ip arp
+            :set searchresult [find where mac-address=$leaseActMAC];
+            :if ([:len $searchresult] > 0) do={
+                :set devicePort [get $searchresult interface];
+                :log info "Device found in ARP table on interface: $devicePort";
+            } else={
+                :log info "Device with MAC $leaseActMAC not found in bridge host or ARP tables.";
+            }
         }
     }
-}
 
-
-
-
-
-
-:local queueName ("[" . $comment . "] " . $hostName);
-:log info "Queue Name: $queueName";
+	:local queueName ("[" . $comment . ":" . $devicePort . "] " . $hostName);
+    :log info "Queue Name: $queueName";
 
     # Append port info to comment
-:set comment ("PORT:$devicePort | MAC:$leaseActMAC | IP:$leaseActIP");
-
-
+    :set comment ("PORT:$devicePort | MAC:$leaseActMAC | IP:$leaseActIP");
 
     # Handle devices not found in any list
     :if ($foundInList = false) do={
@@ -87,6 +79,10 @@
         } else={
             /file add name=rouge.log contents=$logMessage;
         }
+
+        # Add device to the "Rouge" address list
+        :log info "Adding $leaseActIP to Rouge address list with comment: Hostname=$hostName, MAC=$leaseActMAC";
+        /ip firewall address-list add address=$leaseActIP list="Rouge" comment="$hostName, $leaseActMAC";
     }
 
     # Add or update a simple queue for the client
@@ -97,6 +93,13 @@
         :log info "Adding queue for $leaseActIP with speed: $speedLimit and comment: $comment";
         /queue simple add name=$queueName target=($leaseActIP . "/32") max-limit=$speedLimit comment=$comment;
     }
+
+    # After adding or updating the queue, go back to the address list and update the comment
+    :foreach list in=[/ip firewall address-list find where address=$leaseActIP] do={
+        :log info "Updating address list entry comment for IP: $leaseActIP with queue comment: $comment";
+		/ip firewall address-list set $list comment="$hostName, $leaseActMAC";
+    }
+
 } else={
     # Remove the simple queue if the lease is no longer bound
     :log info "Removing queue for $leaseActIP";

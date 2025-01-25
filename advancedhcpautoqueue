@@ -29,6 +29,7 @@
 
     # Construct the comment in the required format
     :local queueName ("[" . $addressList . "] " . $devicePort . " : " . $hostName);
+    :local fwcomment ($devicePort . " : " . $hostName);
     :local queueComment "$leaseActMAC";
     :local speedLimit "10M/10M";
     :local comment "Rouge";
@@ -55,8 +56,8 @@
             :if ($addressList = "Blocklist") do={ :set speedLimit "56K/56K"; }
             :if ($addressList = "Fileserver") do={ :set speedLimit "500M/500M"; }
             
-            # Update comment with queueName in the firewall address list entry
-            /ip firewall address-list set $list comment=$queueName;
+            # Update comment with fwcomment in the firewall address list entry
+            /ip firewall address-list set $list comment=$fwcomment;
         }
     }
     # Add or update the queue
